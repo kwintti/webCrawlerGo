@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"os"
+	"sync"
 )
 
 func main() {
@@ -14,12 +16,24 @@ func main() {
 		fmt.Println("too many arguments provided")
 		os.Exit(1)
 	}
-	url := os.Args[1]
-	fmt.Printf("starting crawl of: %v\n", url)
-	fmt.Println(getHTML(url))
-	// pages := map[string]int{}
-	// crawlPage(url, url, pages)
-	// for k, v := range pages {
-	// 	fmt.Println(k, ": ", v)
-	// }
+	urlBase := os.Args[1]
+	fmt.Printf("starting crawl of: %v\n", urlBase)
+	parsedUrlBase, err := url.Parse(urlBase)
+	if err != nil {
+		fmt.Println("Couldn't parse url")
+		return
+	}
+	maxConcurrency := 1 
+	config := config{
+		baseUrl: parsedUrlBase,
+		pages: map[string]int{},
+		concurrencyControl:make(chan struct{},maxConcurrency),
+		mu: &sync.Mutex{},
+		wg: &sync.WaitGroup{},
+	}
+	config.crawlPage(parsedUrlBase.String())
+	config.wg.Wait()
+	for k, v := range config.pages {
+		fmt.Println(k, ": ", v)
+	}
 }
