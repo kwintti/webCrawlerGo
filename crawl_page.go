@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"sync"
@@ -12,35 +13,52 @@ type config struct {
 	mu *sync.Mutex
 	concurrencyControl chan struct{}
 	wg *sync.WaitGroup
+	maxPages int
+	ctx context.Context
+	ctxC context.CancelFunc
 }
 
 func (cfg *config) crawlPage(rawCurrentURL string) {
-	cfg.wg.Add(1)
-	cfg.concurrencyControl <- struct{}{}
-	defer cfg.wg.Done()
 	defer func(){<-cfg.concurrencyControl}()
+	defer cfg.wg.Done()
+
+	cfg.mu.Lock()
+	lenPages := len(cfg.pages)
+	if lenPages >= cfg.maxPages {
+		cfg.ctxC()
+	    cfg.mu.Unlock()
+		return
+	}
+	cfg.mu.Unlock()
+
+	select {
+	case <- cfg.ctx.Done():
+		return
+	default:
+	}
+
 	parsedCurrent, err := url.Parse(rawCurrentURL)
 	if err != nil {
 		fmt.Println("Couldn't parse current url")
 		return
 	}
+
 	if cfg.baseUrl.Host != parsedCurrent.Host {
 		return
 	}
+	fmt.Println("Right now crawling page: ", rawCurrentURL)
 	normalizedCurrent, err := normalizeURL(rawCurrentURL)
 	if err != nil {
 		fmt.Println("Couldn't normalize current url")
 		return
 	}
+
 	cfg.mu.Lock()
 	val, ok := cfg.pages[normalizedCurrent]
-	cfg.mu.Unlock()
 	if ok {
-		cfg.mu.Lock()
 		cfg.pages[normalizedCurrent] = val + 1
 		cfg.mu.Unlock()
 	} else {
-		cfg.mu.Lock()
 		cfg.pages[normalizedCurrent] = 1
 		cfg.mu.Unlock()
 		body, err := getHTML(rawCurrentURL)
@@ -54,7 +72,31 @@ func (cfg *config) crawlPage(rawCurrentURL string) {
 			return
 		}
 		for _, v := range urls {
-			go cfg.crawlPage(v)
+			normalizedChild, err := normalizeURL(v)
+			if err != nil {
+				continue
+			}
+			select {
+			case cfg.concurrencyControl <- struct{}{}:
+				select {
+				case <- cfg.ctx.Done():
+					<-cfg.concurrencyControl 
+					return
+				default:
+				}
+				cfg.mu.Lock()
+				if _, ok := cfg.pages[normalizedChild]; ok || len(cfg.pages) >= cfg.maxPages {
+					cfg.mu.Unlock()
+					<-cfg.concurrencyControl
+					continue 
+				}
+				cfg.pages[normalizedChild] = 1
+				cfg.mu.Unlock()
+				cfg.wg.Add(1)
+				go cfg.crawlPage(v)
+			case <- cfg.ctx.Done():
+				return
+			}
 		}
 	}
 }
