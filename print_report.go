@@ -32,7 +32,7 @@ func sortPages(pages map[string]int, baseURL url.URL) []Urls {
 		urls = append(urls, Urls{URL: k, Num: v, })
 	}
 	slices.SortFunc(urls, func(a, b Urls) int {
-		if n := cmp.Compare(a.Num, b.Num); n != 0 {
+		if n := cmp.Compare(b.Num, a.Num); n != 0 {
 			return n
 		}
 		return strings.Compare(a.URL, b.URL)

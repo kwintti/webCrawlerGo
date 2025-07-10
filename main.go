@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"net/url"
 	"os"
@@ -33,7 +32,6 @@ func main() {
 	if err != nil {
 		fmt.Println("Couldn't convert string to int")
 	}
-	ctx, cancel := context.WithCancel(context.Background())
 	config := config{
 		baseUrl: parsedUrlBase,
 		pages: map[string]int{},
@@ -41,11 +39,8 @@ func main() {
 		mu: &sync.Mutex{},
 		wg: &sync.WaitGroup{},
 		maxPages: maxPages,
-		ctx: ctx,
-		ctxC: cancel,
 	}
 	config.wg.Add(1)
-	fmt.Println("url base: ", parsedUrlBase.Path)
 	config.crawlPage(parsedUrlBase.String())
 	config.wg.Wait()
 	printReport(config.pages, *config.baseUrl)

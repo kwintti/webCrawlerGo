@@ -28,20 +28,12 @@ func getURLsFromHTML(htmlBody, rawBaseURL string) ([]string, error) {
 					continue
 				}
 				if a.Key == "href" {
-					// if a.Val[0] == byte('/') {
-					// 	urls = append(urls, rawBaseURL + a.Val)
-					// 	break
-					// }
-					// urls = append(urls, a.Val)
-					// break
 					u, err := url.Parse(a.Val)
 					if err != nil {
 						continue
 					}
 					resolved := base.ResolveReference(u)
-					if resolved.Host == base.Host {
-						urls = append(urls, resolved.String())
-					}
+					urls = append(urls, resolved.String())
 				}
 			}
 		}

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"net/url"
 	"sync"
@@ -14,8 +13,6 @@ type config struct {
 	concurrencyControl chan struct{}
 	wg *sync.WaitGroup
 	maxPages int
-	ctx context.Context
-	ctxC context.CancelFunc
 }
 
 func (cfg *config) crawlPage(rawCurrentURL string) {
@@ -25,17 +22,10 @@ func (cfg *config) crawlPage(rawCurrentURL string) {
 	cfg.mu.Lock()
 	lenPages := len(cfg.pages)
 	if lenPages >= cfg.maxPages {
-		cfg.ctxC()
 	    cfg.mu.Unlock()
 		return
 	}
 	cfg.mu.Unlock()
-
-	select {
-	case <- cfg.ctx.Done():
-		return
-	default:
-	}
 
 	parsedCurrent, err := url.Parse(rawCurrentURL)
 	if err != nil {
@@ -72,31 +62,30 @@ func (cfg *config) crawlPage(rawCurrentURL string) {
 			return
 		}
 		for _, v := range urls {
+			cfg.concurrencyControl <- struct{}{}
 			normalizedChild, err := normalizeURL(v)
 			if err != nil {
+				<-cfg.concurrencyControl 
 				continue
 			}
-			select {
-			case cfg.concurrencyControl <- struct{}{}:
-				select {
-				case <- cfg.ctx.Done():
-					<-cfg.concurrencyControl 
-					return
-				default:
-				}
-				cfg.mu.Lock()
-				if _, ok := cfg.pages[normalizedChild]; ok || len(cfg.pages) >= cfg.maxPages {
-					cfg.mu.Unlock()
-					<-cfg.concurrencyControl
-					continue 
-				}
-				cfg.pages[normalizedChild] = 1
+			cfg.mu.Lock()
+			if _, ok := cfg.pages[normalizedChild]; ok {
+				cfg.pages[normalizedChild]++
 				cfg.mu.Unlock()
-				cfg.wg.Add(1)
-				go cfg.crawlPage(v)
-			case <- cfg.ctx.Done():
+				<-cfg.concurrencyControl 
+				continue 
+			}
+			if len(cfg.pages) >= cfg.maxPages {
+				cfg.mu.Unlock()
+				<-cfg.concurrencyControl
 				return
 			}
+
+			cfg.pages[normalizedChild] = 1
+			cfg.mu.Unlock()
+			cfg.wg.Add(1)
+			go cfg.crawlPage(v)
+
 		}
 	}
 }
